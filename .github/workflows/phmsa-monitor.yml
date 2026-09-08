@@ -1,0 +1,56 @@
+name: PHMSA Monitor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'monitor.py'
+      - 'tests/**'
+      - '.github/workflows/phmsa-monitor.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * *'
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: phmsa-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Monitor and notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python monitor.py --notify-github
+      - name: Persist successful state
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add state.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update PHMSA monitor state [skip ci]'
+            git push origin HEAD
+          fi
+      - name: Upload diagnostic result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phmsa-monitor-result
+          path: monitor_result.json
+          if-no-files-found: warn
+          retention-days: 30
